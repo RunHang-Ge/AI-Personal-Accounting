@@ -6,6 +6,7 @@ from add_command import handle_add_command
 from query_command import handle_query_command
 from summary_command import handle_summary_command
 from update_command import handle_update_command
+from datetime import date
 
 
 app = FastAPI()

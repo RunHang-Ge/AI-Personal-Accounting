@@ -73,3 +73,55 @@ def parse_add_command(text: str):
         "note": note,
         "raw_text": text,
     }
+
+def save_transaction(user_id: int, chat_id: int, txn: dict):
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        INSERT INTO transactions (
+            telegram_user_id,
+            telegram_chat_id,
+            txn_date,
+            category,
+            amount,
+            currency,
+            merchant,
+            note,
+            raw_text
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id;
+    """, (
+        user_id,
+        chat_id,
+        txn["txn_date"],
+        txn["category"],
+        txn["amount"],
+        txn["currency"],
+        txn["merchant"],
+        txn["note"],
+        txn["raw_text"],
+    ))
+
+    transaction_id = cur.fetchone()[0]
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return transaction_id
+
+
+def handle_add_command(user_id: int, chat_id: int, text: str):
+    txn = parse_add_command(text)
+    transaction_id = save_transaction(user_id, chat_id, txn)
+
+    return (
+        f"已记录 #{transaction_id}\n"
+        f"日期：{txn['txn_date']}\n"
+        f"类别：{txn['category']}\n"
+        f"金额：{txn['currency']} {txn['amount']}\n"
+        f"商户：{txn['merchant']}\n"
+        f"备注：{txn['note']}"
+    )
