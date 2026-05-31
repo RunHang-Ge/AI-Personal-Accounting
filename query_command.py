@@ -1,99 +1,126 @@
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from config import ALLOWED_CATEGORIES
 from db import get_db_connection
 
 
-def parse_add_command(text: str):
-    content = text.replace("/add", "", 1).strip()
-    parts = [p.strip() for p in content.split("|")]
+def parse_query_command(text: str):
+    content = text.replace("/query", "", 1).strip()
+    params = {}
 
-    if len(parts) != 6:
-        raise ValueError(
-            "格式错误。请使用：\n"
-            "/add 日期 | 类别 | 金额 | 币种 | 商户 | 备注\n\n"
-            "例如：\n"
-            "/add 2026-05-31 | 餐饮 | 28.50 | SGD | 食堂 | 午饭"
-        )
+    if not content:
+        return params
 
-    txn_date_text, category, amount_text, currency, merchant, note = parts
+    parts = content.split()
 
-    try:
-        txn_date = date.fromisoformat(txn_date_text)
-    except ValueError:
-        raise ValueError("日期格式错误，请使用 YYYY-MM-DD，例如 2026-05-31")
+    for part in parts:
+        if "=" not in part:
+            raise ValueError("查询格式错误，请使用 key=value，例如：/query category=餐饮")
 
-    if category not in ALLOWED_CATEGORIES:
+        key, value = part.split("=", 1)
+        params[key.strip()] = value.strip()
+
+    allowed_keys = {"category", "date", "start", "end", "min", "max", "limit"}
+
+    for key in params:
+        if key not in allowed_keys:
+            raise ValueError(f"不支持的查询条件：{key}")
+
+    if "category" in params and params["category"] not in ALLOWED_CATEGORIES:
         raise ValueError("类别错误。目前支持：" + "、".join(ALLOWED_CATEGORIES))
 
-    try:
-        amount = Decimal(amount_text)
-    except InvalidOperation:
-        raise ValueError("金额格式错误，例如 28.50")
+    if "date" in params:
+        date.fromisoformat(params["date"])
 
-    if amount <= 0:
-        raise ValueError("金额必须大于 0")
+    if "start" in params:
+        date.fromisoformat(params["start"])
 
-    return {
-        "txn_date": txn_date,
-        "category": category,
-        "amount": amount,
-        "currency": currency.upper(),
-        "merchant": merchant,
-        "note": note,
-        "raw_text": text,
-    }
+    if "end" in params:
+        date.fromisoformat(params["end"])
+
+    if "min" in params:
+        Decimal(params["min"])
+
+    if "max" in params:
+        Decimal(params["max"])
+
+    if "limit" in params:
+        limit = int(params["limit"])
+        if limit <= 0 or limit > 50:
+            raise ValueError("limit 需要在 1 到 50 之间")
+
+    return params
 
 
-def save_transaction(user_id: int, chat_id: int, txn: dict):
+def query_transactions(user_id: int, params: dict):
     conn = get_db_connection()
     cur = conn.cursor()
 
-    cur.execute("""
-        INSERT INTO transactions (
-            telegram_user_id,
-            telegram_chat_id,
-            txn_date,
-            category,
-            amount,
-            currency,
-            merchant,
-            note,
-            raw_text
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        RETURNING id;
-    """, (
-        user_id,
-        chat_id,
-        txn["txn_date"],
-        txn["category"],
-        txn["amount"],
-        txn["currency"],
-        txn["merchant"],
-        txn["note"],
-        txn["raw_text"],
-    ))
+    sql = """
+        SELECT id, txn_date, category, amount, currency, merchant, note
+        FROM transactions
+        WHERE telegram_user_id = %s
+          AND status = 'active'
+    """
 
-    transaction_id = cur.fetchone()[0]
+    values = [user_id]
 
-    conn.commit()
+    if "category" in params:
+        sql += " AND category = %s"
+        values.append(params["category"])
+
+    if "date" in params:
+        sql += " AND txn_date = %s"
+        values.append(params["date"])
+
+    if "start" in params:
+        sql += " AND txn_date >= %s"
+        values.append(params["start"])
+
+    if "end" in params:
+        sql += " AND txn_date <= %s"
+        values.append(params["end"])
+
+    if "min" in params:
+        sql += " AND amount >= %s"
+        values.append(params["min"])
+
+    if "max" in params:
+        sql += " AND amount <= %s"
+        values.append(params["max"])
+
+    limit = int(params.get("limit", 10))
+
+    sql += " ORDER BY txn_date DESC, id DESC LIMIT %s"
+    values.append(limit)
+
+    cur.execute(sql, values)
+    rows = cur.fetchall()
+
     cur.close()
     conn.close()
 
-    return transaction_id
+    return rows
 
 
-def handle_add_command(user_id: int, chat_id: int, text: str):
-    txn = parse_add_command(text)
-    transaction_id = save_transaction(user_id, chat_id, txn)
+def format_transactions(rows):
+    if not rows:
+        return "没有找到符合条件的记录。"
 
-    return (
-        f"已记录 #{transaction_id}\n"
-        f"日期：{txn['txn_date']}\n"
-        f"类别：{txn['category']}\n"
-        f"金额：{txn['currency']} {txn['amount']}\n"
-        f"商户：{txn['merchant']}\n"
-        f"备注：{txn['note']}"
-    )
+    lines = ["查询结果："]
+
+    for row in rows:
+        transaction_id, txn_date, category, amount, currency, merchant, note = row
+        lines.append(
+            f"#{transaction_id} | {txn_date} | {category} | "
+            f"{currency} {amount} | {merchant or '-'} | {note or '-'}"
+        )
+
+    return "\n".join(lines)
+
+
+def handle_query_command(user_id: int, text: str):
+    params = parse_query_command(text)
+    rows = query_transactions(user_id, params)
+    return format_transactions(rows)
