@@ -127,6 +127,124 @@ def parse_add_command(text: str):
     }
 
 
+def parse_query_command(text: str):
+    content = text.replace("/query", "", 1).strip()
+    params = {}
+
+    if not content:
+        return params
+
+    parts = content.split()
+
+    for part in parts:
+        if "=" not in part:
+            raise ValueError("查询格式错误，请使用 key=value，例如：/query category=餐饮")
+
+        key, value = part.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+
+        params[key] = value
+
+    allowed_keys = {"category", "date", "start", "end", "min", "max", "limit"}
+
+    for key in params:
+        if key not in allowed_keys:
+            raise ValueError(f"不支持的查询条件：{key}")
+
+    if "category" in params and params["category"] not in ALLOWED_CATEGORIES:
+        raise ValueError("类别错误。目前支持：" + "、".join(ALLOWED_CATEGORIES))
+
+    if "date" in params:
+        date.fromisoformat(params["date"])
+
+    if "start" in params:
+        date.fromisoformat(params["start"])
+
+    if "end" in params:
+        date.fromisoformat(params["end"])
+
+    if "min" in params:
+        Decimal(params["min"])
+
+    if "max" in params:
+        Decimal(params["max"])
+
+    if "limit" in params:
+        limit = int(params["limit"])
+        if limit <= 0 or limit > 50:
+            raise ValueError("limit 需要在 1 到 50 之间")
+
+    return params
+
+def query_transactions(user_id: int, params: dict):
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    sql = """
+        SELECT id, txn_date, category, amount, currency, merchant, note
+        FROM transactions
+        WHERE telegram_user_id = %s
+        AND status = 'active'
+    """
+
+    values = [user_id]
+
+    if "category" in params:
+        sql += " AND category = %s"
+        values.append(params["category"])
+
+    if "date" in params:
+        sql += " AND txn_date = %s"
+        values.append(params["date"])
+
+    if "start" in params:
+        sql += " AND txn_date >= %s"
+        values.append(params["start"])
+
+    if "end" in params:
+        sql += " AND txn_date <= %s"
+        values.append(params["end"])
+
+    if "min" in params:
+        sql += " AND amount >= %s"
+        values.append(params["min"])
+
+    if "max" in params:
+        sql += " AND amount <= %s"
+        values.append(params["max"])
+
+    limit = int(params.get("limit", 10))
+
+    sql += " ORDER BY txn_date DESC, id DESC LIMIT %s"
+    values.append(limit)
+
+    cur.execute(sql, values)
+    rows = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
+    return rows
+
+
+def format_transactions(rows):
+    if not rows:
+        return "没有找到符合条件的记录。"
+
+    lines = ["查询结果："]
+
+    for row in rows:
+        transaction_id, txn_date, category, amount, currency, merchant, note = row
+
+        lines.append(
+            f"#{transaction_id} | {txn_date} | {category} | "
+            f"{currency} {amount} | {merchant or '-'} | {note or '-'}"
+        )
+
+    return "\n".join(lines)
+
+
 def save_transaction(user_id: int, chat_id: int, txn: dict):
     conn = get_db_connection()
     cur = conn.cursor()
@@ -200,13 +318,29 @@ async def telegram_webhook(request: Request):
         except Exception as e:
             send_message(chat_id, f"记录失败：\n{str(e)}")
 
+    elif text.startswith("/query"):
+        try:
+            params = parse_query_command(text)
+            rows = query_transactions(user_id, params)
+            reply = format_transactions(rows)
+            send_message(chat_id, reply)
+
+        except Exception as e:
+            send_message(chat_id, f"查询失败：\n{str(e)}")
+
     elif text.startswith("/help"):
         send_message(
             chat_id,
             "记账格式：\n"
             "/add 日期 | 类别 | 金额 | 币种 | 商户 | 备注\n\n"
             "例如：\n"
-            "/add 2026-05-31 | 餐饮 | 28.50 | SGD | 食堂 | 午饭"
+            "/add 2026-05-31 | 餐饮 | 28.50 | SGD | 食堂 | 午饭\n\n"
+            "查询格式：\n"
+            "/query\n"
+            "/query category=餐饮\n"
+            "/query date=2026-05-31\n"
+            "/query start=2026-05-01 end=2026-05-31\n"
+            "/query min=20 max=100"
         )
 
     else:
