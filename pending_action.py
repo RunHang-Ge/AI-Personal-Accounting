@@ -11,7 +11,8 @@ def set_pending_action(chat_id: int, action_type: str, payload: dict, raw_text: 
     pending_actions[chat_id] = {
         "type": action_type,
         "payload": payload,
-        "raw_text": raw_text
+        "raw_text": raw_text,
+        "revision_history": []
     }
 
 
@@ -21,6 +22,25 @@ def cancel_pending_action(chat_id: int) -> str:
         return "已取消本次操作。"
 
     return "当前没有待取消的操作。"
+
+def has_pending_action(chat_id: int) -> bool:
+    return chat_id in pending_actions
+
+
+def get_pending_action(chat_id: int) -> dict | None:
+    return pending_actions.get(chat_id)
+
+# 在某个chat_id后增加revision，每次AI处理时会同时考虑原文和revision
+def update_pending_action(chat_id: int, new_payload: dict, revision_text: str):
+    if chat_id not in pending_actions:
+        return
+
+    pending_actions[chat_id]["payload"] = new_payload
+
+    if "revision_history" not in pending_actions[chat_id]:
+        pending_actions[chat_id]["revision_history"] = []
+
+    pending_actions[chat_id]["revision_history"].append(revision_text)
 
 
 def execute_pending_action(user_id: int, chat_id: int) -> str:
