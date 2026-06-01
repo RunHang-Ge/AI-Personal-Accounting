@@ -182,7 +182,7 @@ def handle_summary_command(user_id: int, text: str):
 
 
 def execute_summary_payload(user_id: int, payload: dict) -> str:
-    where_clauses = ["user_id = %s"]
+    where_clauses = ["telegram_user_id = %s"]
     params = [user_id]
 
     if payload.get("date_from"):

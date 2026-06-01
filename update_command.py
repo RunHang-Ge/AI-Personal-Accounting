@@ -167,7 +167,7 @@ def execute_update_payload(user_id: int, payload: dict) -> str:
     sql = f"""
         UPDATE transactions
         SET {", ".join(update_clauses)}
-        WHERE id = %s AND user_id = %s
+        WHERE id = %s AND telegram_user_id = %s
         RETURNING id, txn_date, category, amount, currency, merchant, note
     """
 
