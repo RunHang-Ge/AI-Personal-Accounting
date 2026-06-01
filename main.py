@@ -2,14 +2,64 @@ from fastapi import FastAPI, Request
 
 from db import init_db
 from telegram_api import send_message
-from add_command import handle_add_command
-from query_command import handle_query_command
-from summary_command import handle_summary_command
-from update_command import handle_update_command
-from datetime import date
 
+from datetime import date
+from decimal import Decimal
+
+from ai_parser import (
+    parse_add_with_ai,
+    parse_query_with_ai,
+    parse_summary_with_ai,
+    parse_update_with_ai
+)
+
+from pending_action import (
+    set_pending_action,
+    cancel_pending_action,
+    execute_pending_action,
+    format_preview
+)
 
 app = FastAPI()
+
+"""pending_actions[chat_id] = {
+    "type": "query",
+    "payload": {
+        "category": "餐饮",
+        "date_from": "2026-05-01",
+        "date_to": "2026-05-31",
+        "min_amount": 20,
+        "max_amount": None,
+        "limit": 10
+    },
+    "raw_text": "/query 查一下这个月餐饮超过20新币的记录"
+}"""
+pending_actions = {}
+
+def split_command_and_content(text: str):
+    text = text.strip()
+
+    if not text.startswith("/"):
+        return None, text
+
+    lines = text.splitlines()
+    first_line = lines[0].strip()
+
+    parts = first_line.split(maxsplit=1)
+    command = parts[0]
+
+    first_line_content = parts[1].strip() if len(parts) > 1 else ""
+    rest_content = "\n".join(lines[1:]).strip()
+
+    content = "\n".join(
+        part for part in [first_line_content, rest_content]
+        if part
+    ).strip()
+
+    return command, content
+
+
+
 
 
 @app.on_event("startup")
@@ -35,29 +85,86 @@ async def telegram_webhook(request: Request):
 
     chat_id = chat.get("id")
     user_id = user.get("id")
-    text = message.get("text", "")
+    text = message.get("text", "").strip()
 
     if not chat_id or not text:
         return {"ok": True}
 
     try:
-        if text.startswith("/add"):
-            reply = handle_add_command(user_id, chat_id, text)
+        if text == "确认":
+            reply = execute_pending_action(user_id, chat_id)
 
-        elif text.startswith("/query"):
-            reply = handle_query_command(user_id, text)
-
-        elif text.startswith("/summary"):
-            reply = handle_summary_command(user_id, text)
-
-        elif text.startswith("/update"):
-            reply = handle_update_command(user_id, text)
-
-        elif text.startswith("/help"):
-            reply = get_help_text()
+        elif text == "取消":
+            reply = cancel_pending_action(chat_id)
 
         else:
-            reply = "请输入 /help 查看支持的指令。"
+            command, content = split_command_and_content(text)
+
+            if command == "/add":
+                if not content:
+                    reply = "请输入要新增的账单内容，例如：\n/add 今天中午在食堂吃饭花了 28.5 新币"
+                else:
+                    payload = parse_add_with_ai(content)
+
+                    set_pending_action(
+                        chat_id=chat_id,
+                        action_type="add",
+                        payload=payload,
+                        raw_text=text
+                    )
+
+                    reply = format_preview("add", payload)
+
+            elif command == "/query":
+                if not content:
+                    reply = "请输入查询条件，例如：\n/query 查一下这个月餐饮超过 20 新币的记录"
+                else:
+                    payload = parse_query_with_ai(content)
+
+                    set_pending_action(
+                        chat_id=chat_id,
+                        action_type="query",
+                        payload=payload,
+                        raw_text=text
+                    )
+
+                    reply = format_preview("query", payload)
+
+            elif command == "/summary":
+                if not content:
+                    reply = "请输入汇总条件，例如：\n/summary 汇总这个月每个类别花了多少钱"
+                else:
+                    payload = parse_summary_with_ai(content)
+
+                    set_pending_action(
+                        chat_id=chat_id,
+                        action_type="summary",
+                        payload=payload,
+                        raw_text=text
+                    )
+
+                    reply = format_preview("summary", payload)
+
+            elif command == "/update":
+                if not content:
+                    reply = "请输入修改内容，例如：\n/update 把第 3 条记录的类别改成交通，备注改成打车"
+                else:
+                    payload = parse_update_with_ai(content)
+
+                    set_pending_action(
+                        chat_id=chat_id,
+                        action_type="update",
+                        payload=payload,
+                        raw_text=text
+                    )
+
+                    reply = format_preview("update", payload)
+
+            elif command in ["/start", "/help"]:
+                reply = get_help_text()
+
+            else:
+                reply = "无法识别命令。请输入 /help 查看用法。"
 
     except Exception as e:
         reply = f"操作失败：\n{str(e)}"
@@ -97,3 +204,4 @@ def get_help_text():
         "/update 记录ID 字段=新值\n"
         "例如：/update 3 category=交通 amount=32.50"
     )
+

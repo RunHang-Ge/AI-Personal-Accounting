@@ -126,3 +126,25 @@ def handle_add_command(user_id: int, chat_id: int, text: str):
         f"商户：{txn['merchant']}\n"
         f"备注：{txn['note']}"
     )
+
+def execute_add_payload(user_id: int, chat_id: int, payload: dict, raw_text: str) -> str:
+    txn = {
+        "txn_date": date.fromisoformat(payload["txn_date"]),
+        "category": payload["category"],
+        "amount": Decimal(str(payload["amount"])),
+        "currency": payload["currency"],
+        "merchant": payload.get("merchant"),
+        "note": payload.get("note"),
+        "raw_text": raw_text
+    }
+
+    transaction_id = save_transaction(user_id, chat_id, txn)
+
+    return (
+        f"已新增账单 #{transaction_id}\n\n"
+        f"日期：{txn['txn_date']}\n"
+        f"类别：{txn['category']}\n"
+        f"金额：{txn['currency']} {txn['amount']}\n"
+        f"商户：{txn['merchant'] or '-'}\n"
+        f"备注：{txn['note'] or '-'}"
+    )
