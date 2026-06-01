@@ -60,8 +60,6 @@ def split_command_and_content(text: str):
 
 
 
-
-
 @app.on_event("startup")
 def startup():
     init_db()
