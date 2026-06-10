@@ -3,6 +3,9 @@ from query_command import execute_query_payload
 from summary_command import execute_summary_payload
 from update_command import execute_update_payload
 
+from google_maps import search_google_maps_places
+from add_command import execute_add_payload
+
 
 pending_actions = {}
 
@@ -43,6 +46,99 @@ def update_pending_action(chat_id: int, new_payload: dict, revision_text: str):
     pending_actions[chat_id]["revision_history"].append(revision_text)
 
 
+
+
+
+
+def is_selecting_google_map(chat_id: int) -> bool:
+    action = pending_actions.get(chat_id)
+
+    if not action:
+        return False
+
+    return action.get("status") == "selecting_google_map"
+
+
+def set_google_map_selection(chat_id: int, payload: dict, raw_text: str, map_results: list):
+    pending_actions[chat_id] = {
+        "type": "add",
+        "status": "selecting_google_map",
+        "payload": payload,
+        "raw_text": raw_text,
+        "map_results": map_results
+    }
+
+
+def format_google_map_results(results: list[dict]) -> str:
+    lines = ["找到以下 Google Map 结果，请选择：\n"]
+
+    for index, item in enumerate(results, start=1):
+        lines.append(
+            f"{index}. {item.get('name', '-')}\n"
+            f"地址：{item.get('address', '-')}\n"
+        )
+
+    lines.append("请输入数字选择地址，或输入「退出」跳过。")
+
+    return "\n".join(lines)
+
+
+def handle_google_map_selection(user_id: int, chat_id: int, text: str) -> str:
+    action = pending_actions.get(chat_id)
+
+    if not action or action.get("status") != "selecting_google_map":
+        return "当前没有正在选择的 Google Map 地址。"
+
+    payload = action["payload"]
+    raw_text = action["raw_text"]
+    map_results = action["map_results"]
+
+    if text == "退出":
+        reply = execute_add_payload(
+            user_id=user_id,
+            chat_id=chat_id,
+            payload=payload,
+            raw_text=raw_text,
+            google_map=None
+        )
+
+        del pending_actions[chat_id]
+
+        return "已跳过 Google Map 地址。\n\n" + reply
+
+    if not text.isdigit():
+        return "当前正在选择 Google Map 地址。请输入数字，或输入「退出」跳过。"
+
+    choice = int(text)
+
+    if choice < 1 or choice > len(map_results):
+        return f"请输入 1-{len(map_results)} 之间的数字，或输入「退出」跳过。"
+
+    selected_place = map_results[choice - 1]
+    google_map_address = selected_place.get("address")
+
+    reply = execute_add_payload(
+        user_id=user_id,
+        chat_id=chat_id,
+        payload=payload,
+        raw_text=raw_text,
+        google_map=google_map_address
+    )
+
+    del pending_actions[chat_id]
+
+    return (
+        "已选择 Google Map 地址。\n\n"
+        f"Google Map 地址：{google_map_address}\n\n"
+        + reply
+    )
+
+
+
+
+
+
+
 def execute_pending_action(user_id: int, chat_id: int) -> str:
     if chat_id not in pending_actions:
         return "当前没有待确认的操作。"
@@ -52,8 +148,50 @@ def execute_pending_action(user_id: int, chat_id: int) -> str:
     payload = action["payload"]
     raw_text = action["raw_text"]
 
-    if action_type == "add":
-        result = execute_add_payload(user_id, chat_id, payload, raw_text)
+     if action_type == "add":
+        merchant = payload.get("merchant")
+
+        if merchant and merchant.strip():
+            try:
+                map_results = search_google_maps_places(merchant, max_results=5)
+            except Exception as e:
+                result = execute_add_payload(
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    payload=payload,
+                    raw_text=raw_text,
+                    google_map=None
+                )
+
+                del pending_actions[chat_id]
+
+                return (
+                    "Google Map 搜索失败，账单已正常录入。\n"
+                    f"错误信息：{e}\n\n"
+                    + result
+                )
+
+            if map_results:
+                set_google_map_selection(
+                    chat_id=chat_id,
+                    payload=payload,
+                    raw_text=raw_text,
+                    map_results=map_results
+                )
+
+                return format_google_map_results(map_results)
+
+        result = execute_add_payload(
+            user_id=user_id,
+            chat_id=chat_id,
+            payload=payload,
+            raw_text=raw_text,
+            google_map=None
+        )
+
+        del pending_actions[chat_id]
+        return result
+
 
     elif action_type == "query":
         result = execute_query_payload(user_id, payload)

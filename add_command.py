@@ -4,7 +4,7 @@ from db import get_db_connection
 
 from config import ALLOWED_CATEGORIES
 
-def save_transaction(user_id: int, chat_id: int, txn: dict):
+def save_transaction(user_id: int, chat_id: int, txn: dict, google_map: str = None):
     conn = get_db_connection()
     cur = conn.cursor()
 
@@ -18,9 +18,10 @@ def save_transaction(user_id: int, chat_id: int, txn: dict):
             currency,
             merchant,
             note,
-            raw_text
+            raw_text,
+            google_map
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id;
     """, (
         user_id,
@@ -32,6 +33,7 @@ def save_transaction(user_id: int, chat_id: int, txn: dict):
         txn["merchant"],
         txn["note"],
         txn["raw_text"],
+
     ))
 
     transaction_id = cur.fetchone()[0]
@@ -54,7 +56,11 @@ def execute_add_payload(user_id: int, chat_id: int, payload: dict, raw_text: str
         "raw_text": raw_text
     }
 
-    transaction_id = save_transaction(user_id, chat_id, txn)
+    transaction_id = save_transaction(
+        user_id, 
+        chat_id, 
+        txn,
+        google_map)
 
     return (
         f"已新增账单 #{transaction_id}\n\n"
@@ -62,5 +68,6 @@ def execute_add_payload(user_id: int, chat_id: int, payload: dict, raw_text: str
         f"类别：{txn['category']}\n"
         f"金额：{txn['currency']} {txn['amount']}\n"
         f"商户：{txn['merchant'] or '-'}\n"
-        f"备注：{txn['note'] or '-'}"
+        f"备注：{txn['note'] or '-'}\n"
+        f"Google Map：{google_map or '-'}"
     )

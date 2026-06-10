@@ -18,7 +18,9 @@ from pending_action import (
     format_preview,
     has_pending_action,
     get_pending_action,
-    update_pending_action
+    update_pending_action,
+    is_selecting_google_map,
+    handle_google_map_selection
 )
 
 app = FastAPI()
@@ -50,6 +52,7 @@ def split_command_and_content(text: str):
 @app.on_event("startup")
 def startup():
     init_db()
+    migrate_db()
 
 
 @app.get("/")
@@ -76,7 +79,10 @@ async def telegram_webhook(request: Request):
         return {"ok": True}
 
     try:
-        if text == "确认":
+        if is_selecting_google_map(chat_id):
+            reply = handle_google_map_selection(user_id, chat_id, text)
+
+        elif text == "确认":
             reply = execute_pending_action(user_id, chat_id)
 
         elif text == "取消":

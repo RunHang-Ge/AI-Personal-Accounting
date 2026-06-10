@@ -37,3 +37,17 @@ def init_db():
     conn.commit()
     cur.close()
     conn.close()
+
+
+def migrate_db():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        ALTER TABLE transactions
+        ADD COLUMN IF NOT EXISTS google_map TEXT;
+    """)
+
+    conn.commit()
+    cur.close()
+    conn.close()
