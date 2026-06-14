@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request
 
-from db import init_db
+from db import init_db, migrate_db
 from telegram_api import send_message
 
 from ai_parser import (
@@ -87,6 +87,9 @@ async def telegram_webhook(request: Request):
 
         elif text == "取消":
             reply = cancel_pending_action(chat_id)
+
+        elif has_pending_action(chat_id) and text.startswith("/"):
+            reply = "当前正在处理其他请求，请先确认或取消。"
 
         elif has_pending_action(chat_id):
             pending_action = get_pending_action(chat_id)

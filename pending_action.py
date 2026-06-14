@@ -47,9 +47,6 @@ def update_pending_action(chat_id: int, new_payload: dict, revision_text: str):
 
 
 
-
-
-
 def is_selecting_google_map(chat_id: int) -> bool:
     action = pending_actions.get(chat_id)
 
@@ -148,7 +145,7 @@ def execute_pending_action(user_id: int, chat_id: int) -> str:
     payload = action["payload"]
     raw_text = action["raw_text"]
 
-     if action_type == "add":
+    if action_type == "add":
         merchant = payload.get("merchant")
 
         if merchant and merchant.strip():

@@ -33,7 +33,7 @@ def save_transaction(user_id: int, chat_id: int, txn: dict, google_map: str = No
         txn["merchant"],
         txn["note"],
         txn["raw_text"],
-
+        google_map,
     ))
 
     transaction_id = cur.fetchone()[0]
@@ -45,7 +45,7 @@ def save_transaction(user_id: int, chat_id: int, txn: dict, google_map: str = No
     return transaction_id
 
 
-def execute_add_payload(user_id: int, chat_id: int, payload: dict, raw_text: str) -> str:
+def execute_add_payload(user_id: int, chat_id: int, payload: dict, raw_text: str, google_map: str | None = None) -> str:
     txn = {
         "txn_date": date.fromisoformat(payload["txn_date"]),
         "category": payload["category"],
